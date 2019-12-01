@@ -1,0 +1,177 @@
+{
+    "Version": "2012-10-17",
+    "Statement": [
+        {
+            "Sid": "VisualEditor0",
+            "Effect": "Allow",
+            "Action": [
+                "cloud9:ListEnvironments",
+                "cloud9:DescribeEnvironmentStatus",
+                "cloud9:DescribeEnvironments",
+                "cloud9:DescribeEnvironmentMemberships"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor1",
+            "Effect": "Allow",
+            "Action": "iot:*",
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor2",
+            "Effect": "Allow",
+            "Action": [
+                "ecs:ListAttributes",
+                "ecs:DescribeTaskSets",
+                "ecs:DescribeTaskDefinition",
+                "ecs:DescribeClusters",
+                "ecs:ListServices",
+                "ecs:ListTagsForResource",
+                "ecs:ListTasks",
+                "ecs:ListTaskDefinitionFamilies",
+                "ecs:DescribeServices",
+                "ecs:ListContainerInstances",
+                "ecs:DescribeContainerInstances",
+                "ecs:DescribeTasks",
+                "ecs:ListTaskDefinitions",
+                "ecs:ListClusters"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor3",
+            "Effect": "Allow",
+            "Action": [
+                "ecr:DescribeImages",
+                "ecr:DescribeRepositories",
+                "ecr:ListImages"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor4",
+            "Effect": "Allow",
+            "Action": [
+                "cloudformation:ListExports",
+                "cloudformation:ListStacks",
+                "cloudformation:DescribeStackEvents",
+                "cloudformation:DescribeStackInstance",
+                "cloudformation:ListStackInstances",
+                "cloudformation:DescribeStackResources",
+                "cloudformation:DescribeStacks",
+                "cloudformation:ListStackResources"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor5",
+            "Effect": "Allow",
+            "Action": [
+                "s3:GetBucketPolicyStatus",
+                "s3:GetObjectAcl",
+                "s3:GetObject",
+                "s3:ListAllMyBuckets",
+                "s3:GetBucketWebsite",
+                "s3:GetObjectVersionAcl",
+                "s3:ListBucket",
+                "s3:GetBucketAcl",
+                "s3:GetBucketPolicy",
+                "s3:GetObjectVersion"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor6",
+            "Effect": "Allow",
+            "Action": [
+                "logs:ListTagsLogGroup",
+                "logs:GetLogRecord",
+                "logs:DescribeLogGroups",
+                "logs:DescribeLogStreams",
+                "logs:GetLogEvents",
+                "logs:FilterLogEvents",
+                "logs:GetLogGroupFields",
+                "logs:ListLogDeliveries"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor7",
+            "Effect": "Allow",
+            "Action": [
+                "codecommit:GetCommit",
+                "codecommit:ListBranches",
+                "codecommit:GetComment",
+                "codecommit:GetRepository",
+                "codecommit:BatchGetCommits",
+                "codecommit:GitPull",
+                "codecommit:BatchGetRepositories",
+                "codecommit:GetFolder",
+                "codecommit:ListRepositories",
+                "codecommit:GetPullRequest",
+                "codecommit:BatchGetPullRequests",
+                "codecommit:GetFile"
+            ],
+            "Resource": "*",
+            "Condition": {
+                "StringEquals": {
+                    "aws:RequestedRegion": "us-east-2"
+                }
+            }
+        },
+        {
+            "Sid": "VisualEditor8",
+            "Effect": "Allow",
+            "Action": [
+                "iam:ListPolicies",
+                "iam:GetRole",
+                "iam:GetPolicyVersion",
+                "iam:PassRole",
+                "iam:GetPolicy",
+                "iam:ListPolicyVersions",
+                "cloudwatch:GetMetricData",
+                "iam:ListRoles",
+                "cloudwatch:GetMetricStatistics",
+                "iam:ListRolePolicies",
+                "iam:GetRolePolicy"
+            ],
+            "Resource": "*"
+        }
+    ]
+}

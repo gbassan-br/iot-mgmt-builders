@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta http-equiv="X-UA-Compatible" content="ie=edge">
+
+  <title>Re:Invent IoT Bootcamp</title>
+  <link href="css/bootstrap.css" rel="stylesheet"  media="all">
+  <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.3.4/dist/leaflet.css"
+   integrity="sha512-puBpdR0798OZvTTbP4A8Ix/l+A4dHDD0DGqYW6RQ+9jxkRFclaxxQb/SJAWZfWAkuyeQUytO7+7N4QKrDh+drA=="
+   crossorigin=""/>
+</head>
+
+<body>
+  <nav class="navbar navbar-inverse navbar-fixed-top">
+    <div class="container-fluid">
+        <div class="navbar-header">
+            <a class="navbar-brand" href="#">IoT Bootcamp - Device Fleet Dashboard</a>
+          </div>
+        <ul class="nav navbar-nav">
+            <li id="home" class="active"><a href="?location=all">Home</a></li>
+            <li id="mapview"><a href="#">Map View</a></li>
+            <li id="listview"><a href="#">List View</a></li>
+            <li class="dropdown">
+              <a class="dropdown-toggle" data-toggle="dropdown" href="#">Locations
+              <span class="caret"></span></a>
+              <ul class="dropdown-menu">
+                <li><a href="?location=all">All</a></li>
+                <li><a href="?location=LasVegas">LasVegas</a></li>
+                <li><a href="?location=SanFrancisco">San Francisco</a></li>
+                <li><a href="?location=NYC">NYC</a></li>
+                <li><a href="?location=Miami">Miami</a></li>
+                <li><a href="?location=SaoPaulo">Sao Paulo</a></li>
+              </ul>
+            </li>
+          </ul>
+        <button type="button" class="btn btn-danger navbar-btn" id="verify">Verify Devices</button>
+    </div>
+  </nav>
+  <div id="verifyModal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="myModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+  
+      <!-- Modal content-->
+      <div class="modal-content">
+        <div class="modal-header">
+        </div>
+        <div class="modal-body">
+        </div>
+      </div>
+  
+    </div>
+  </div>
+  <div id="mapid"></div>
+  <div class="container-fluid">
+    <div id="devices" class="row">
+     </div>
+    </div>
+    <script id="deviceInfo" type="text/x-handlebars-template">
+      <div>
+        <b>Device ID:</b> <a onclick="markerFunction('{{deviceId}}')" href="#">{{deviceId}}</a> <br>
+        <b>Location:</b> {{region}}<br>
+      </div>
+    </script>
+    <script id="deviceLed" type="text/x-handlebars-template">
+          <img src="{{led}}" alt="Smart AC Status">
+    </script>
+    <script id="deviceAlexa" type="text/x-handlebars-template">
+          <img src="{{alexa}}" alt="Alexa Enabled Status">
+    </script>
+    <script src="https://unpkg.com/leaflet@1.3.4/dist/leaflet.js" inntegrity="sha512-nMMmRyTVoLYqjP9hrbed9S+FzjZHW5gY1TWCHA5ckwXZBadntCNs8kEqAWdrb9O7rxbCaA4lKTIWjDXZxflOcA==" crossorigin=""></script>
+    <script src="js/jquery.min.js"></script>
+    <script src="js/GaugeMeter.js"></script>    
+    <script src="js/paho-mqtt.js"></script>
+    <script src="https://sdk.amazonaws.com/js/aws-sdk-2.327.0.min.js"></script>
+    <script src="js/bootstrap.min.js"></script>
+    <link href="https://netdna.bootstrapcdn.com/bootstrap/3.0.0/css/bootstrap-glyphicons.css" rel="stylesheet">
+    <script src="js/handlebars.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/main.js"></script>
+
+</body>
+
+</html>

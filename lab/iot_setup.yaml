@@ -1,0 +1,741 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: CloudFormation template for setting up the Builders IoT Stack
+
+Resources:
+
+  CodeCommitRepository:
+        Type: AWS::CodeCommit::Repository
+        Properties:
+            Code:
+                S3:
+                    Bucket: !Sub "${AWS::Region}-gbassan-builders"
+                    Key: artifacts/initial_repo.zip
+            RepositoryName: IoTRepository
+            RepositoryDescription: Initial CodeCommit Repository to be used on IoT Builders Lab
+
+  Cloud9Instance:
+    Type: AWS::Cloud9::EnvironmentEC2
+    DependsOn: 
+        - CodeCommitRepository
+    Properties: 
+        AutomaticStopTimeMinutes: 30
+        Description: Cloud Development Environment to be used on the Developer Essentials Course Labs
+        InstanceType: t2.micro
+        Name: IoTCloud9
+        Repositories: 
+            - 
+                PathComponent: '/IoTRepository'
+                RepositoryUrl: !GetAtt CodeCommitRepository.CloneUrlHttp
+
+
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - 
+          Effect: Allow
+          Principal:
+            Service:
+              - lambda.amazonaws.com
+          Action:
+            - sts:AssumeRole
+      Path: /
+      Policies:
+      -
+        PolicyName: root
+        PolicyDocument:
+          Version: '2012-10-17'
+          Statement:
+            -
+              Effect: Allow
+              Action:
+                - dynamodb:*
+                - iot:*
+                - ecs:*
+                - iam:*
+                - s3:*
+                - codebuild:*
+                - logs:*
+                - ecr:*
+              Resource: '*'
+
+  CustomBuildResourceFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: 
+        - LambdaExecutionRole
+    Properties:
+        Code:
+            S3Bucket: !Sub "${AWS::Region}-gbassan-builders"
+            S3Key: artifacts/custom_build_lambda.zip
+        Handler: custom_build_lambda.lambda_handler
+        Role: !GetAtt 'LambdaExecutionRole.Arn'
+        Runtime: python3.6
+        Timeout: '900'
+
+  CustomBuildResource:
+      Type: Custom::CustomResource
+      DependsOn: 
+        - CustomBuildResourceFunction
+        - LambdaExecutionRole
+        - BuildersCodeBuildProject
+        - ContainerRepo
+        - IoTBucket
+        - ECSCluster
+        - devicesTable
+        - DeviceSimulatorServiceDefinition
+        - DeviceSimulatorServiceDefinition
+        - DeviceSimulatorLogs
+        - EventThingCreatedRule
+        - SQSQueue
+      Properties:
+          ServiceToken: !GetAtt 'CustomBuildResourceFunction.Arn'
+          CodeBuildProject: !Ref BuildersCodeBuildProject
+          ECRRepo: !Ref ContainerRepo
+          S3_BUCKET: !Ref IoTBucket
+          AccountNumber: !Ref AWS::AccountId
+
+
+
+  BuildersCodeBuildServiceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      Path: /
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: codebuild.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: root
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Resource: "*"
+                Effect: Allow
+                Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  - ecr:GetAuthorizationToken
+                  - s3:GetObject
+                  - s3:GetObjectAcl
+                  - s3:PutObjectAcl 
+                  - s3:PutObject
+                  - s3:PutBucketWebsite
+                  - s3:GetObjectVersion
+                  - iot:CreateThingType
+                  - iot:StartThingRegistrationTask
+                  - iot:UpdateEventConfigurations
+                  - iot:DescribeEndpoint 
+                  - iot:ListThingTypes
+                  - ecs:UpdateService
+                  - dynamodb:PutItem
+                  - dynamodb:Scan
+                  - iam:PassRole
+                  - iot:DescribeThingRegistrationTask
+              - Resource: !Sub arn:aws:ecr:${AWS::Region}:${AWS::AccountId}:repository/${ContainerRepo}
+                Effect: Allow
+                Action:
+                  - ecr:GetDownloadUrlForLayer
+                  - ecr:BatchGetImage
+                  - ecr:BatchCheckLayerAvailability
+                  - ecr:PutImage
+                  - ecr:InitiateLayerUpload
+                  - ecr:UploadLayerPart
+                  - ecr:CompleteLayerUpload
+
+  BuildersCodeBuildProject:
+    Type: AWS::CodeBuild::Project
+    DependsOn:
+      - BuildersCodeBuildServiceRole
+      - cognitoIdPool
+      - IoTBucket
+      - ContainerRepo
+    Properties:
+      Artifacts:
+        Type: NO_ARTIFACTS
+      Source:
+        Type: NO_SOURCE
+        BuildSpec: |
+          version: 0.2
+          phases:
+            install:
+              runtime-versions:
+                  docker: 18
+                  python: 3.7
+              commands:
+                  - apt-get install jq -y
+                  - wget https://${AWS_REGION}-gbassan-builders.s3.amazonaws.com/artifacts/job_config.json
+                  - aws s3 cp job_config.json s3://${IoTBucket}/job_config.json
+                  - wget https://${AWS_REGION}-gbassan-builders.s3.amazonaws.com/artifacts/job2_config.json
+                  - aws s3 cp job2_config.json s3://${IoTBucket}/job2_config.json
+                  - wget https://${AWS_REGION}-gbassan-builders.s3.amazonaws.com/artifacts/setup.zip
+                  - unzip setup.zip
+                  - ls -la
+                  - echo "Preparing the website..."
+                  - aws s3 cp ./dashboard/http/ s3://${IoTBucket}/ --recursive --acl public-read
+                  - aws s3 website s3://${IoTBucket}/ --index-document index.html
+                  - IOT_ENDPOINT=$(aws iot describe-endpoint --endpoint-type iot:Data-ATS --region ${AWS_REGION} --output text)
+                  - echo "Creating the configuration file..."
+                  - echo "iotUrl = \"$IOT_ENDPOINT\";" > /tmp/config.js
+                  - echo "AWS.config.region = '${AWS_REGION}';" >> /tmp/config.js
+                  - echo "IdentityPoolId = '${cognitoIdPool}';" >> /tmp/config.js
+                  - echo "lab3 = false;" >> /tmp/config.js
+                  - aws s3 cp /tmp/config.js s3://${IoTBucket}/js/ --acl public-read
+            build:
+              commands:
+                  - echo "Preparing the docker image..."
+                  - cd device-simulator/docker
+                  - while [ -z $ECR_REPO ]; do ECR_REPO=`aws ecr describe-repositories --repository-names iot-builders-repo --query "repositories[0].repositoryUri" --output text`; sleep 5; done
+                  - echo $ECR_REPO
+                  - $(aws ecr get-login --no-include-email --region ${AWS_REGION})
+                  - docker build -t iot-builders-repo .
+                  - docker tag iot-builders-repo:latest ${ECR_REPO}:latest
+                  - docker push ${ECR_REPO}:latest
+            post_build:
+              commands:
+                  - cd -
+                  - echo "Launching virtual device containers..."
+                  - aws ecs update-service --service device-simulator-service --desired-count=40 --cluster=device-simulator-cluster
+                  - echo enable iot events to work with IoT Rules to ECS
+                  - aws iot update-event-configurations --event-configurations THING={Enabled=true},THING_GROUP={Enabled=true},THING_TYPE={Enabled=true},THING_GROUP_MEMBERSHIP={Enabled=true},THING_GROUP_HIERARCHY={Enabled=true},THING_TYPE_ASSOCIATION={Enabled=true},JOB={Enabled=true},JOB_EXECUTION={Enabled=true},POLICY={Enabled=true},CERTIFICATE={Enabled=true},CA_CERTIFICATE={Enabled=true}
+                  - echo create thing type raspberry
+                  - hasRasp=$(aws iot list-thing-types --thing-type-name raspberryPI |jq '.[] | length')
+                  - hasDefault=$(aws iot list-thing-types --thing-type-name Default |jq '.[] | length')
+                  - if test "$hasRasp" -eq 0 ; then aws iot create-thing-type --thing-type-name raspberryPI; else echo 'raspberryPI type already exists'; fi
+                  - if test "$hasDefault" -eq 0 ; then aws iot create-thing-type --thing-type-name Default; else echo 'default type already exists' ; fi
+                  - pip install pyopenssl
+                  - pip install shapely
+                  - pip install boto3
+                  - python ./device-simulator/utils/bulk_input_file_generator.py -f bulk_input_file.json -n 40 -4 5
+                  - aws s3 cp bulk_input_file.json s3://${IoTBucket}/bulk_input_file.json
+                  - taskID=$(aws iot start-thing-registration-task --template-body file://device-simulator/utils/bulk_prov_template.json --input-file-bucket ${IoTBucket} --input-file-key bulk_input_file.json --role-arn ${BulkIoTRole}| jq -r .taskId)
+                  - echo $taskID
+                  - while [ "$status" != "Completed" ] ; do status=$(aws iot describe-thing-registration-task --task-id $taskID | jq -r .status); echo "Job status = $status. Waiting for job to complete"; sleep 5; done
+                  - failures=$(aws iot describe-thing-registration-task --task-id $taskID | jq -r .failureCount)
+                  - if test "$failures" -gt 0 ; then exit 1; else  exit 0 ; fi 
+      Environment:
+        ComputeType: BUILD_GENERAL1_SMALL
+        Image: aws/codebuild/standard:2.0
+        Type: LINUX_CONTAINER
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: ECR_REPO
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ContainerRepo}
+          - Name: IoTBucket
+            Value: !Ref IoTBucket
+          - Name: cognitoIdPool
+            Value: !Ref cognitoIdPool
+          - Name: BulkIoTRole
+            Value: !GetAtt BulkIoTRole.Arn
+      ServiceRole: !Ref BuildersCodeBuildServiceRole
+
+# S3 Bucket to be used on this account
+  IoTBucket:
+    Type: AWS::S3::Bucket
+ 
+  ContainerRepo:
+    Type: AWS::ECR::Repository
+    Properties: 
+      RepositoryName: iot-builders-repo
+
+  cognitoIdPool:
+      Type: "AWS::Cognito::IdentityPool"
+      Properties:
+          AllowUnauthenticatedIdentities: True
+
+# dummy role because is never used
+  CognitoAuthRole:
+      Type: "AWS::IAM::Role"
+      DependsOn: cognitoIdPool
+      Properties:
+          AssumeRolePolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+              - 
+                  Effect: "Allow"
+                  Principal: 
+                      Federated: 
+                          - "cognito-identity.amazonaws.com"
+                  Action: 
+                      - "sts:AssumeRoleWithWebIdentity"
+                  Condition:
+                      StringEquals:
+                          cognito-identity.amazonaws.com:aud: !Ref cognitoIdPool
+                      ForAnyValue:StringLike:
+                          cognito-identity.amazonaws.com:amr: authenticated
+          Path: "/"
+          Policies: 
+          - 
+              PolicyDocument: 
+                  Version: "2012-10-17"
+                  Statement: 
+                  -
+                      Effect: "Deny"
+                      Action:
+                          - "*"
+                      Resource: "*"
+              PolicyName: "InlineCognitoAuthPolicy"
+
+  CognitoUnauthRole: 
+      Type: "AWS::IAM::Role"
+      DependsOn: cognitoIdPool
+      Properties: 
+          AssumeRolePolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+              - 
+                  Effect: "Allow"
+                  Principal: 
+                      Federated: 
+                          - "cognito-identity.amazonaws.com"
+                  Action: 
+                      - "sts:AssumeRoleWithWebIdentity"
+                  Condition:
+                      StringEquals:
+                          cognito-identity.amazonaws.com:aud: !Ref cognitoIdPool
+                      ForAnyValue:StringLike:
+                          cognito-identity.amazonaws.com:amr: unauthenticated
+          Path: "/"
+          Policies: 
+          - 
+              PolicyDocument: 
+                  Version: "2012-10-17"
+                  Statement: 
+                  - 
+                      Sid: "CognitoPolicy"
+                      Effect: "Allow"
+                      Action: 
+                          - "cognito-sync:*"
+                          - "mobileanalytics:PutEvents"
+                      Resource: "*"
+                  -
+                      Sid: "IoTDynamoPolicies"
+                      Effect: "Allow"
+                      Action:
+                          - "iot:Receive"
+                          - "iot:Subscribe"
+                          - "dynamodb:Scan"
+                          - "iot:Publish"
+                          - "dynamodb:Query"
+
+                      Resource:
+                          - "arn:aws:iot:*:*:topic/$aws/things/*/shadow/get"
+                          - "arn:aws:iot:*:*:topic/$aws/things/*/shadow/get/accepted"
+                          - "arn:aws:iot:*:*:topic/devices/temperature/*/*"
+                          - "arn:aws:iot:*:*:topic/$aws/things/*/shadow/update/accepted"
+                          - "arn:aws:iot:*:*:topicfilter/devices/temperature/+/#"
+                          - "arn:aws:iot:*:*:topicfilter/$aws/things/+/shadow/get/accepted"
+                          - "arn:aws:iot:*:*:topicfilter/$aws/things/+/shadow/update/accepted"
+                          - "arn:aws:dynamodb:*:*:table/devices-simulator"
+                          - "arn:aws:dynamodb:*:*:table/devices-simulator/index/deviceID"
+                  - 
+                      Sid: "IoTPolicy"
+                      Effect: "Allow"
+                      Action:
+                          - "iot:Connect"
+                      Resource:
+                          - "arn:aws:iot:*:*:client/dashboard"
+
+              PolicyName: "InlineCognitoUnauthPolicy"                            
+  cognitoRoles:
+      Type: "AWS::Cognito::IdentityPoolRoleAttachment"
+      DependsOn:
+          - CognitoAuthRole
+          - CognitoUnauthRole
+      Properties:
+          IdentityPoolId: !Ref cognitoIdPool
+          Roles:
+  #The order of unauth and auth is required
+  #for the GetAtt Function, there is no need to put Ref to get the object 
+              unauthenticated: !GetAtt [ CognitoUnauthRole, Arn ]         
+              authenticated: !GetAtt [ CognitoAuthRole, Arn ]
+
+  IoTLogsRole:
+      Type: "AWS::IAM::Role"
+      Properties:
+          AssumeRolePolicyDocument: 
+              Version: "2012-10-17"
+              Statement: 
+              - 
+                  Effect: "Allow"
+                  Principal: 
+                      Service: 
+                          - "iot.amazonaws.com"
+                  Action: 
+                      - "sts:AssumeRole"
+          Path: "/"
+          Policies: 
+          - 
+              PolicyDocument: 
+                  Version: "2012-10-17"
+                  Statement: 
+                  -
+                      Effect: "Allow"
+                      Action:
+                        - "logs:CreateLogGroup"
+                        - "logs:CreateLogStream"
+                        - "logs:PutLogEvents"
+                        - "logs:PutMetricFilter"
+                        - "logs:PutRetentionPolicy"
+                      Resource:
+                        - !Sub "arn:aws:logs:*:${AWS::AccountId}:log-group:*:log-stream:*"
+              PolicyName: "InlineIoTLoggingPolicy"
+                  
+  # SQS Queue Definition
+  SQSQueue: 
+    Type: AWS::SQS::Queue
+    Properties: 
+      QueueName: "device-simulator-sqs"
+  
+  # Dynamo Table definition
+  devicesTable:
+        Type: "AWS::DynamoDB::Table"
+        Properties:
+            AttributeDefinitions:
+            -   AttributeName: "deviceID"
+                AttributeType: "S"
+            KeySchema:
+            -   AttributeName: "deviceID"
+                KeyType: "HASH"
+            ProvisionedThroughput:
+                ReadCapacityUnits: "50"
+                WriteCapacityUnits: "50"
+            TableName: "devices-simulator"
+
+  # Log group for task execution
+  DeviceSimulatorLogs:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: "/ecs/device-simulator"
+      RetentionInDays: 30
+
+  # IAM Roles Definitions
+  BulkIoTRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    -
+                        Effect: "Allow"
+                        Principal:
+                            Service:
+                                - "iot.amazonaws.com"
+                        Action:
+                                - "sts:AssumeRole"
+            Path: "/"
+            ManagedPolicyArns:
+              - "arn:aws:iam::aws:policy/service-role/AWSIoTThingsRegistration"
+            Policies: 
+              - PolicyDocument:
+                  Version: "2012-10-17"
+                  Statement: 
+                  - 
+                      Sid: "S3ReadBucket"
+                      Effect: "Allow"
+                      Action: 
+                          - "s3:GetObject"
+                      Resource: !Sub 'arn:aws:s3:::${IoTBucket}/*'
+                PolicyName: "S3AccessPolicy"
+  IoTRulesRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    -
+                        Effect: "Allow"
+                        Principal:
+                            Service:
+                                - "iot.amazonaws.com"
+                        Action:
+                                - "sts:AssumeRole"
+            Path: "/"
+            ManagedPolicyArns:
+              - "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
+              - "arn:aws:iam::aws:policy/AWSIoTFullAccess"
+              - "arn:aws:iam::aws:policy/AWSLambdaFullAccess"
+              
+  DeviceSimulatorTaskExecutionRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    -
+                        Effect: "Allow"
+                        Principal:
+                            Service:
+                                - "ecs-tasks.amazonaws.com"
+                        Action:
+                                - "sts:AssumeRole"
+            Path: "/"
+            ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy"
+                - "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
+                - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+                - "arn:aws:iam::aws:policy/AWSLambdaFullAccess"
+                - "arn:aws:iam::aws:policy/AWSIoTFullAccess"
+
+  LambdaDeviceFactoryRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    -
+                        Effect: "Allow"
+                        Principal:
+                            Service:
+                                - "lambda.amazonaws.com"
+                        Action:
+                                - "sts:AssumeRole"
+            Path: "/"
+            ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+                - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+                
+  LambdaDeviceRestartRole:
+        Type: "AWS::IAM::Role"
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    -
+                        Effect: "Allow"
+                        Principal:
+                            Service:
+                                - "lambda.amazonaws.com"
+                        Action:
+                                - "sts:AssumeRole"
+            Path: "/"
+            ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/AmazonDynamoDBFullAccess"
+                - "arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+                - "arn:aws:iam::aws:policy/AmazonSQSFullAccess"
+                - "arn:aws:iam::aws:policy/AWSIoTFullAccess"
+                            
+  ECSCluster:
+        Type: AWS::ECS::Cluster
+        Properties:
+            ClusterName: 'device-simulator-cluster'
+
+  
+# Lambda function Definitions
+  LambdaDeviceFactory:
+    Type: "AWS::Lambda::Function"
+    DependsOn: 
+      - devicesTable
+      - LambdaDeviceFactoryRole
+    Properties:
+      FunctionName: "lambda-device-factory"
+      Description: "Lambda function to refresh device certificate information on DynamoDB"
+      Code:
+        # To-do, change to parameter 
+        S3Bucket: !Sub "${AWS::Region}-gbassan-builders"
+        # To-do, change to parameter 
+        S3Key: "artifacts/lambda_device_factory.zip"
+      Handler: "lambda_deviceFactory.lambda_handler"
+      Runtime: "python3.6"
+      Role: !GetAtt LambdaDeviceFactoryRole.Arn
+      Timeout: 120
+      MemorySize: 128
+      Environment:
+        Variables:
+          TABLE_NAME: !Ref devicesTable
+# VPC resources to ECS Cluster       
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: 10.0.0.0/16
+      EnableDnsSupport: 'true'
+      EnableDnsHostnames: 'true'
+  PubSubnetAz1:
+    Type: AWS::EC2::Subnet
+    DependsOn: Vpc
+    Properties:
+      VpcId: !Ref 'Vpc'
+      CidrBlock: 10.0.1.0/24
+      AvailabilityZone: 
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: !Ref 'AWS::Region'
+      MapPublicIpOnLaunch: true
+  PubSubnetAz2:
+    DependsOn: Vpc
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      CidrBlock: 10.0.2.0/24
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: !Ref 'AWS::Region'
+      MapPublicIpOnLaunch: true
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  AttachGateway:
+    Type: AWS::EC2::VPCGatewayAttachment
+    DependsOn: InternetGateway
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+  RouteViaIgw:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+  PublicRouteViaIgw:
+    Type: AWS::EC2::Route
+    DependsOn: AttachGateway
+    Properties:
+      RouteTableId: !Ref RouteViaIgw
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+  PubSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetAz1
+      RouteTableId: !Ref RouteViaIgw
+  PubSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PubSubnetAz2
+      RouteTableId: !Ref RouteViaIgw
+  EcsSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: Vpc
+    Properties:
+      GroupDescription: ECS Allowed Ports
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        IpProtocol: tcp
+        FromPort: 80
+        ToPort: 80
+        CidrIp: 0.0.0.0/0
+      SecurityGroupEgress:
+        IpProtocol: -1
+        CidrIp: 0.0.0.0/0
+  
+  # Task definitions
+  DeviceSimulatorTaskDef:
+    Type: "AWS::ECS::TaskDefinition"
+    DependsOn:
+      - DeviceSimulatorLogs
+      - SQSQueue
+      - devicesTable
+      - ContainerRepo
+      - DeviceSimulatorTaskExecutionRole
+    Properties:
+      ExecutionRoleArn: !GetAtt DeviceSimulatorTaskExecutionRole.Arn
+      Family: "device-simulator-task"
+      RequiresCompatibilities:
+        - "FARGATE"
+      Memory: "512"
+      Cpu: "256"
+      NetworkMode: "awsvpc"
+      TaskRoleArn: !GetAtt DeviceSimulatorTaskExecutionRole.Arn
+      ContainerDefinitions:
+        -
+          LogConfiguration:
+            LogDriver: "awslogs"
+            Options:
+              awslogs-group: "/ecs/device-simulator"
+              awslogs-region:
+                Fn::Sub: "${AWS::Region}"
+              awslogs-stream-prefix: "ecs"
+          Cpu: 256
+          Memory: 512
+          # Production docker image
+          Image: !Sub "${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${ContainerRepo}:latest"
+          Environment:
+            - 
+              Name: AWS_DEFAULT_REGION
+              Value: !Ref "AWS::Region"
+            - 
+              Name: SQS_URL
+              Value: !Ref SQSQueue
+            - 
+              Name: TABLE_NAME
+              Value: !Ref devicesTable
+            - 
+              Name: TOPIC
+              # decide if topic will be hardcoded
+              Value: devices/temperature
+
+          Name: "device-simulator-1"
+          Essential: True
+
+  # ECS Service Definition
+  DeviceSimulatorServiceDefinition:
+    Type: "AWS::ECS::Service"
+    DependsOn:
+      - DeviceSimulatorTaskDef
+      - ECSCluster 
+    Properties:
+      ServiceName: "device-simulator-service"
+      TaskDefinition: !Ref DeviceSimulatorTaskDef
+      Cluster: !GetAtt ECSCluster.Arn
+      DeploymentConfiguration:
+        MaximumPercent: 200
+        MinimumHealthyPercent: 50
+      # decide if this will be a parameter or will be hardcoded for the bootcamp  
+      DesiredCount: 0
+      LaunchType: "FARGATE"
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          SecurityGroups:
+            - !Ref EcsSecurityGroup
+          Subnets:
+            - !Ref PubSubnetAz1
+            - !Ref PubSubnetAz2
+
+  # IOT Rule to get Device Event
+  EventThingCreatedRule: 
+    Type: AWS::IoT::TopicRule
+    DependsOn:
+      - LambdaDeviceFactory
+      - SQSQueue
+      - IoTRulesRole
+    Properties: 
+      RuleName: EventDeviceCreatedRule
+      TopicRulePayload: 
+        RuleDisabled: "false"
+        Sql: >-
+          SELECT thingName as deviceID, CAST(timestamp() AS VARCHAR) as creationDate, thingId as deviceSerial, thingTypeName as deviceType, attributes FROM '$aws/events/thing/#' WHERE eventType = 'THING_EVENT' AND operation = 'CREATED' AND  startswith(thingName, 'device') = true
+        Actions: 
+          -
+            Lambda:
+              FunctionArn: !GetAtt LambdaDeviceFactory.Arn
+          - 
+            Sqs: 
+              QueueUrl: !Ref SQSQueue
+              RoleArn: !GetAtt IoTRulesRole.Arn
+          -
+            Republish:
+              Topic: event/devices
+              RoleArn: !GetAtt IoTRulesRole.Arn
+
+
+  # Lambda call permission for IoT Rules
+  LambdaInvokePermission:
+    Type: AWS::Lambda::Permission
+    DependsOn:
+      - LambdaDeviceFactory
+      - EventThingCreatedRule
+    Properties:
+      FunctionName: !GetAtt LambdaDeviceFactory.Arn
+      Action: 'lambda:InvokeFunction'
+      Principal: iot.amazonaws.com
+      SourceAccount: !Ref 'AWS::AccountId'
+      SourceArn: !GetAtt EventThingCreatedRule.Arn
+
+Outputs:
+  DashboardURL:
+    Description: URL to acess device information
+    Value: !Join [ "" , [ "http://", !Ref IoTBucket, !Sub ".s3-website.${AWS::Region}.amazonaws.com" ] ]

@@ -1,0 +1,16 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Effect": "Allow",
+      "Action": [
+        "iot:Subscribe",
+        "iot:Receive"
+      ],
+      "Resource": [
+        "arn:aws:iot:*:*:topicfilter/alexa/integration/*",
+        "arn:aws:iot:*:*:topic/alexa/integration/*"
+      ]
+    }
+  ]
+}

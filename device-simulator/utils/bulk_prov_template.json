@@ -1,0 +1,44 @@
+{
+  "Parameters" : {
+    "ThingName" : {
+        "Type" : "String"
+      },
+      "ThingType" : {
+        "Type" : "String"
+      },
+      "SerialNumber" : {
+        "Type" : "String"
+      },
+      "Location" : {
+        "Type" : "String",
+        "Default" : "WA"
+      },
+      "CSR" : {
+        "Type" : "String"    
+      }
+  },
+  "Resources" : {
+    "thing" : {
+      "Type" : "AWS::IoT::Thing",
+      "Properties" : {
+        "ThingName" : {"Ref" : "ThingName"},
+        "AttributePayload" : { "version" : "v1", "serialNumber" :  {"Ref" : "SerialNumber"}, "Location" : {"Ref" : "Location"}}, 
+        "ThingTypeName" :  {"Ref" : "ThingType"}
+      }
+    },
+    "certificate" : {
+      "Type" : "AWS::IoT::Certificate",
+      "Properties" : {
+        "CertificateSigningRequest": {"Ref" : "CSR"},
+        "Status" : "ACTIVE"      
+      }
+    },
+    "policy" : {
+      "Type" : "AWS::IoT::Policy",
+      "Properties" : {
+        "PolicyDocument" : "{  \"Version\": \"2012-10-17\", \"Statement\":[{ \"Effect\": \"Allow\", \"Action\": \"iot:Connect\", \"Resource\": [\"arn:aws:iot:*:*:client/${iot:ClientId}\",\"arn:aws:iot:*:*:client/${iot:ClientId}_shadow\"]},{\"Effect\": \"Allow\",\"Action\": [\"iot:Subscribe\",\"iot:Receive\",\"iot:Publish\"],\"Resource\": [\"arn:aws:iot:*:*:topic/devices/temperature/*/*\",\"arn:aws:iot:*:*:topic/$aws/things/*/jobs/*\",\"arn:aws:iot:*:*:topic/$aws/things/*/shadow/*\",\"arn:aws:iot:*:*:topicfilter/devices/temperature/*/*\",\"arn:aws:iot:*:*:topicfilter/$aws/things/*/shadow/*\",\"arn:aws:iot:*:*:topicfilter/$aws/things/*/jobs/*\"]},{\"Effect\": \"Allow\",\"Action\": [\"iot:UpdateThingShadow\",\"iot:GetThingShadow\",\"iot:DeleteThingShadow\",\"iot:DescribeJobExecution\",\"iot:GetPendingJobExecutions\",\"iot:UpdateJobExecution\",\"iot:StartNextPendingJobExecution\"],\"Resource\": [\"*\"]}]}"
+      }
+    }
+  }
+}
+
